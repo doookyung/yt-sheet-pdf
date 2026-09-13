@@ -35,6 +35,46 @@ def open_path(p: Path):
         subprocess.Popen(["xdg-open", str(p)])
 
 
+# macOS 가상 키코드 (한글 입력 상태에서는 keysym 이 'ㅍ' 등으로 와서 keycode 로 판별)
+_MAC_KEYCODES = {9: "paste", 8: "copy", 7: "cut", 0: "selectall"}
+_KEYSYMS = {"v": "paste", "c": "copy", "x": "cut", "a": "selectall"}
+
+
+def install_edit_shortcuts(w: tk.Widget):
+    """⌘V/⌘C/⌘X/⌘A (Ctrl 포함) 를 입력기와 무관하게 동작시키고 우클릭 메뉴를 붙인다."""
+    def do(action: str):
+        if action == "selectall":
+            w.select_range(0, "end")
+            w.icursor("end")
+        else:
+            w.event_generate(f"<<{action.capitalize()}>>")
+
+    def on_key(e):
+        action = _KEYSYMS.get((e.keysym or "").lower()) or (
+            _MAC_KEYCODES.get(e.keycode) if sys.platform == "darwin" else None)
+        if action:
+            do(action)
+            return "break"
+
+    w.bind("<Command-KeyPress>", on_key)
+    w.bind("<Control-KeyPress>", on_key)
+
+    menu = tk.Menu(w, tearoff=0)
+    menu.add_command(label="붙여넣기", command=lambda: do("paste"))
+    menu.add_command(label="복사", command=lambda: do("copy"))
+    menu.add_command(label="잘라내기", command=lambda: do("cut"))
+    menu.add_separator()
+    menu.add_command(label="모두 선택", command=lambda: do("selectall"))
+    menu.add_command(label="지우기", command=lambda: w.delete(0, "end"))
+
+    def popup(e):
+        w.focus_set()
+        menu.tk_popup(e.x_root, e.y_root)
+    w.bind("<Button-2>", popup)        # macOS 트랙패드 우클릭
+    w.bind("<Button-3>", popup)
+    w.bind("<Control-Button-1>", popup)
+
+
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
@@ -62,8 +102,11 @@ class App(tk.Tk):
         self._rect_id = None
         self._thumb_refs: list = []
 
+        self._last_autofill = ""
         self._build_ui()
         self.after(100, self._poll_queue)
+        self.after(300, self._autofill_from_clipboard)
+        self.bind("<FocusIn>", self._autofill_from_clipboard)
 
     # ─────────────────────────── UI 구성 ───────────────────────────
 
@@ -74,7 +117,12 @@ class App(tk.Tk):
         f1 = ttk.LabelFrame(self, text="1. 유튜브 링크 또는 영상 파일")
         f1.pack(fill="x", **pad)
         self.src_var = tk.StringVar()
-        ttk.Entry(f1, textvariable=self.src_var).pack(side="left", fill="x", expand=True, padx=(8, 4), pady=8)
+        self.src_entry = ttk.Entry(f1, textvariable=self.src_var)
+        self.src_entry.pack(side="left", fill="x", expand=True, padx=(8, 4), pady=8)
+        install_edit_shortcuts(self.src_entry)
+        # 자동으로 채워진 링크 위에 붙여넣기하면 이어붙지 않고 교체
+        self.src_entry.bind("<<Paste>>", self._replace_autofill_on_paste, add=True)
+        ttk.Button(f1, text="📋 붙여넣기", command=self._paste_clipboard).pack(side="left", padx=4)
         ttk.Button(f1, text="파일 선택…", command=self._choose_file).pack(side="left", padx=4)
         self.load_btn = ttk.Button(f1, text="영상 불러오기", command=self._load_video)
         self.load_btn.pack(side="left", padx=(4, 8))
@@ -111,10 +159,14 @@ class App(tk.Tk):
         r.pack(fill="x", padx=8, pady=6)
         ttk.Label(r, text="시작").pack(side="left")
         self.start_var = tk.StringVar(value="0:00")
-        ttk.Entry(r, textvariable=self.start_var, width=7).pack(side="left", padx=(4, 12))
+        e_start = ttk.Entry(r, textvariable=self.start_var, width=7)
+        e_start.pack(side="left", padx=(4, 12))
+        install_edit_shortcuts(e_start)
         ttk.Label(r, text="끝").pack(side="left")
         self.end_var = tk.StringVar(value="")
-        ttk.Entry(r, textvariable=self.end_var, width=7).pack(side="left", padx=(4, 12))
+        e_end = ttk.Entry(r, textvariable=self.end_var, width=7)
+        e_end.pack(side="left", padx=(4, 12))
+        install_edit_shortcuts(e_end)
         ttk.Label(r, text="감도").pack(side="left")
         self.thr_var = tk.DoubleVar(value=0.06)
         ttk.Scale(r, from_=0.01, to=0.3, variable=self.thr_var, length=140,
@@ -206,6 +258,41 @@ class App(tk.Tk):
 
     def _on_wheel(self, e):
         self.thumb_canvas.yview_scroll(int(-e.delta / 30) if abs(e.delta) > 10 else -e.delta, "units")
+
+    # ─────────────────────────── 클립보드 ───────────────────────────
+
+    def _clipboard_text(self) -> str:
+        try:
+            return self.clipboard_get().strip()
+        except tk.TclError:
+            return ""
+
+    def _replace_autofill_on_paste(self, _e=None):
+        if self.src_var.get().strip() and self.src_var.get().strip() == self._last_autofill:
+            self.src_entry.delete(0, "end")
+
+    def _paste_clipboard(self):
+        txt = self._clipboard_text()
+        if not txt:
+            messagebox.showinfo("안내", "클립보드가 비어 있습니다. 유튜브 링크를 먼저 복사(⌘C)하세요.")
+            return
+        self.src_var.set(txt.splitlines()[0])
+        self._last_autofill = self.src_var.get()
+
+    def _autofill_from_clipboard(self, _e=None):
+        """클립보드에 유튜브 링크가 있고 입력칸이 비어 있으면(또는 직전 자동입력 그대로면) 자동으로 채운다.
+        앱 시작 시, 그리고 다른 앱에서 돌아와 창이 활성화될 때만 (입력칸 클릭에는 반응하지 않음)."""
+        if _e is not None and _e.widget is not self:
+            return
+        txt = self._clipboard_text().splitlines()[0] if self._clipboard_text() else ""
+        if not txt or not core.is_url(txt) or "yout" not in txt.lower():
+            return
+        cur = self.src_var.get().strip()
+        if cur == "" or cur == self._last_autofill:
+            if cur != txt:
+                self.src_var.set(txt)
+                self._last_autofill = txt
+                self._set_status("클립보드의 링크를 자동으로 넣었어요 → [영상 불러오기]")
 
     # ─────────────────────────── 1. 영상 불러오기 ───────────────────────────
 
