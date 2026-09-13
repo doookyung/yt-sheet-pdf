@@ -1,18 +1,33 @@
 #!/bin/bash
 # 더블클릭 런처 (터미널 창 없이 실행). 프로젝트 루트 = .app 의 상위 폴더
+# Finder 에서 실행되면 PATH 가 거의 비어 있으므로 python 을 직접 찾는다.
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 cd "$ROOT"
 
-if ! command -v python3 >/dev/null 2>&1 || ! python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3,10) else 1)'; then
-  osascript -e 'display dialog "Python 3.10 이상이 필요합니다.\n\n확인을 누르면 다운로드 페이지가 열립니다. 설치 후 다시 더블클릭하세요." buttons {"확인"} default button 1 with icon caution'
+# 이미 설치돼 있으면 바로 실행
+if [ -x .venv/bin/python ]; then
+  exec .venv/bin/python app.py
+fi
+
+find_python() {
+  local c
+  for c in \
+    /Library/Frameworks/Python.framework/Versions/3.1[0-9]/bin/python3 \
+    /opt/homebrew/bin/python3 /usr/local/bin/python3 \
+    "$HOME"/.pyenv/shims/python3 /usr/bin/python3; do
+    [ -x "$c" ] || continue
+    "$c" -c 'import sys; sys.exit(0 if sys.version_info >= (3,10) else 1)' 2>/dev/null && { echo "$c"; return 0; }
+  done
+  return 1
+}
+
+PY="$(find_python)"
+if [ -z "$PY" ]; then
+  osascript -e 'display dialog "Python 3.10 이상을 찾지 못했습니다.\n\n확인을 누르면 다운로드 페이지가 열립니다. 설치 후 다시 더블클릭하세요." buttons {"확인"} default button 1 with icon caution'
   open "https://www.python.org/downloads/"
   exit 1
 fi
 
-if [ ! -x .venv/bin/python ]; then
-  osascript -e 'display dialog "처음 실행입니다. 필요한 구성요소를 설치합니다 (1~2분).\n\n확인을 누르면 터미널 창이 열리고, 설치가 끝나면 앱이 자동으로 실행됩니다." buttons {"확인"} default button 1 with icon note'
-  open -a Terminal "$ROOT/setup.sh"
-  exit 0
-fi
-
-exec .venv/bin/python app.py
+osascript -e 'display dialog "처음 실행입니다. 필요한 구성요소를 설치합니다 (1~2분).\n\n확인을 누르면 터미널 창이 열리고, 설치가 끝나면 앱이 자동으로 실행됩니다." buttons {"확인"} default button 1 with icon note'
+echo "$PY" > .python-path
+open -a Terminal "$ROOT/setup.sh"
