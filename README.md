@@ -10,98 +10,81 @@
 
 ---
 
-## 0. 준비물 (딱 두 가지)
+## 준비물
 
-| 필요한 것 | 확인 방법 |
+**Python 3.10 이상** 하나만 있으면 됩니다. (Mac / Windows / Linux)
+
+- 확인: 터미널(Windows는 PowerShell)에 `python3 --version` (Windows는 `python --version`)
+- 없으면 https://www.python.org/downloads/ 에서 설치. **Windows는 설치 화면에서 "Add python.exe to PATH" 꼭 체크!**
+
+---
+
+## 설치 (최초 1회)
+
+### 방법 A — ZIP 다운로드 (터미널 몰라도 됨)
+
+1. 이 페이지 위쪽의 초록색 **Code** 버튼 → **Download ZIP**
+2. 압축을 풀고 폴더를 원하는 곳(예: 바탕화면)에 둡니다
+3. 아래 "실행하기"로
+
+### 방법 B — git clone
+
+```bash
+git clone https://github.com/doookyung/yt-sheet-pdf.git
+```
+
+---
+
+## 실행하기 (더블클릭)
+
+| | 더블클릭할 파일 |
 |---|---|
-| **Mac / Windows / Linux** 아무거나 | Windows는 "터미널" 대신 **PowerShell**을 씁니다 → 아래 "Windows 사용자" 참고 |
-| **Python 3.10 이상** | 아래 1단계에서 확인 |
+| **Mac** | `악보PDF.app` |
+| **Windows** | `악보PDF.bat` |
 
-> 터미널이 처음이라면: Mac에서 `⌘ + Space` → `터미널` 입력 → Enter 하면 검은 창이 열립니다. 아래 명령어들은 전부 그 창에 **복사 → 붙여넣기 → Enter** 하면 됩니다.
+처음 한 번은 "필요한 구성요소를 설치합니다" 안내가 뜨고 1~2분 걸립니다. 끝나면 앱이 자동으로 열리고, 다음부터는 바로 열립니다.
 
----
+> 🍎 **Mac에서 "확인되지 않은 개발자" 경고가 뜨면**: `악보PDF.app`을 **우클릭 → 열기 → 열기**. 한 번만 하면 됩니다.
+> (ZIP으로 받았을 때만 뜨고, git clone으로 받으면 안 뜹니다.)
 
-## 1. Python 있는지 확인
+### 앱 사용법 — 화면 위에서부터 순서대로
 
-터미널에 이렇게 입력하고 Enter:
+1. **유튜브 링크** 붙여넣기 (또는 [파일 선택…]으로 내 컴퓨터의 영상) → **[영상 불러오기]**
+2. 영상 장면이 뜨면 **악보 부분을 마우스로 드래그**해서 빨간 네모를 그립니다
+   - 슬라이더로 다른 시각의 장면을 볼 수 있어요 (악보가 안 보이는 장면이면 옮겨 보세요)
+3. **[▶ PDF 만들기]** → 진행 바가 차오르면서 아래에 잡힌 악보들이 썸네일로 나타납니다
+4. 잘못 잡힌 장이 있으면 **체크 해제** → **[PDF 다시 만들기]**
+5. **[PDF 열기]** 또는 **[폴더 열기]**
 
-```bash
-python3 --version
-```
-
-- `Python 3.12.x` 처럼 **3.10 이상**이 나오면 OK → 2단계로
-- `command not found` 가 나오거나 3.9 이하면 → https://www.python.org/downloads/ 에서 최신 버전 설치 후 터미널을 **껐다 다시 켜고** 다시 확인
-
----
-
-## 2. 프로그램 받기 + 설치 (최초 1회만)
-
-터미널에 아래 한 줄을 통째로 복사해서 붙여넣고 Enter:
-
-```bash
-git clone https://github.com/doookyung/yt-sheet-pdf.git && cd yt-sheet-pdf && ./setup.sh
-```
-
-1~2분 정도 걸리고, 마지막에 `설치 완료!` 가 뜨면 끝입니다.
-(`git` 이 없다고 나오면 `xcode-select --install` 을 실행해서 설치한 뒤 다시 시도하세요.)
-
-이제 내 홈 폴더에 `yt-sheet-pdf` 폴더가 생겼습니다.
-
----
-
-## 3. 사용하기
-
-### ① 폴더로 이동
-
-터미널을 새로 열었다면 항상 먼저 이걸 입력:
-
-```bash
-cd ~/yt-sheet-pdf
-```
-
-### ② 유튜브 링크 넣고 실행
-
-```bash
-./sheet2pdf "https://www.youtube.com/watch?v=XXXXXXXX"
-```
-
-> 링크는 **꼭 큰따옴표 `"` 로 감싸 주세요.** (링크에 `&` 같은 문자가 있으면 따옴표 없이는 오류가 납니다.)
-
-### ③ 악보 영역 드래그
-
-잠시 후 영상의 한 장면이 담긴 창이 뜹니다.
-
-1. **악보가 있는 부분**을 마우스로 드래그해서 네모를 그리고
-2. **Enter** 를 누르세요
-
-> 💡 창이 안 보이면 **Dock에 있는 Python(뱀) 아이콘**을 클릭하세요. 터미널 뒤에 숨어 있는 경우가 많습니다.
-> 💡 잘못 그렸으면 그냥 다시 드래그하면 됩니다. 취소는 `c`.
-
-### ④ 기다리기
-
-터미널에 `[page 1] 01m52s` 같은 줄이 하나씩 올라오면서 진행됩니다.
-5분짜리 영상이면 보통 30초~1분 정도 걸립니다.
-
-### ⑤ 결과 확인
-
-끝나면 `~/yt-sheet-pdf/output/` 폴더에 저장됩니다. 바로 열어 보려면:
-
-```bash
-open output
-```
+결과는 앱 폴더 안의 `output/` 에 저장됩니다.
 
 ```
 output/
 ├── <영상 제목>.pdf          ← 이걸 인쇄하거나 아이패드로 보내면 됩니다
 └── pages/
-    ├── page_001_01m52s.png  ← 캡쳐된 낱장 (파일 이름에 영상 시각이 있어요)
-    ├── page_002_02m02s.png
+    ├── page_001_01m52s.png  ← 캡쳐된 낱장 (파일 이름에 영상 시각)
     └── ...
 ```
 
 ---
 
-## 4. 자주 생기는 상황
+## 터미널로 쓰기 (선택)
+
+터미널이 편하면 GUI 없이 명령어로도 됩니다.
+
+```bash
+cd yt-sheet-pdf
+./setup.sh                                   # 최초 1회 (Windows: python -m venv .venv && .venv\Scripts\pip install -r requirements.txt)
+./sheet2pdf "https://www.youtube.com/watch?v=XXXXXXXX"        # 창이 뜨면 악보 영역 드래그 → Enter
+./sheet2pdf "링크" --region 0,0,1280,340     # 좌표를 직접 지정 (창 없이)
+./sheet2pdf --from-images output/pages --name 곡이름.pdf   # PNG 정리 후 PDF만 재생성
+```
+
+(Windows: `./sheet2pdf` 대신 `.venv\Scripts\python sheet2pdf.py`)
+
+---
+
+## 자주 생기는 상황 (터미널 옵션 기준 — 앱에서는 "3. 옵션"에 같은 항목이 있습니다)
 
 ### 🔹 악보 배경이 검정/어두운 색이에요
 기본은 "밝은 배경 = 악보" 라고 판단해서 어두운 화면을 빼버립니다. 다크 테마 악보라면 이 필터를 끄세요:
@@ -167,7 +150,7 @@ output/
 
 ---
 
-## 5. 전체 옵션 표 (참고용)
+## 전체 옵션 표 (터미널용)
 
 | 옵션 | 기본값 | 설명 |
 |---|---|---|
@@ -185,28 +168,6 @@ output/
 | `--max-height` | 1080 | 다운로드 최대 해상도 |
 | `--keep-video` | | 다운로드한 영상 파일을 지우지 않음 |
 | `--debug` | | 프레임별 변화량 출력 (threshold 튜닝할 때) |
-
----
-
-## Windows 사용자
-
-Windows에도 터미널이 있습니다. 이름이 **PowerShell**이에요.
-
-1. 시작 메뉴 클릭 → `PowerShell` 입력 → 나오는 파란 창(Windows PowerShell) 클릭해서 열기
-2. Python이 없다면 https://www.python.org/downloads/ 에서 설치 — **설치 화면에서 "Add python.exe to PATH" 체크박스 꼭 체크**
-3. Git이 없다면 https://git-scm.com/downloads 에서 설치 (기본 옵션 그대로 Next만 눌러도 됨)
-
-그 창(PowerShell)에 아래를 순서대로 붙여넣고 Enter:
-
-```powershell
-git clone https://github.com/doookyung/yt-sheet-pdf.git
-cd yt-sheet-pdf
-python -m venv .venv
-.venv\Scripts\pip install -r requirements.txt
-.venv\Scripts\python sheet2pdf.py "https://www.youtube.com/watch?v=XXXXXXXX"
-```
-
-이후 사용법은 위와 같고, `./sheet2pdf` 대신 `.venv\Scripts\python sheet2pdf.py` 를 쓰면 됩니다.
 
 ---
 

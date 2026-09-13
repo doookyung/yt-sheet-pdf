@@ -53,8 +53,10 @@ def is_url(s: str) -> bool:
 
 # ─────────────────────────── 다운로드 ────────────────────────────
 
-def download_video(url: str, out_dir: Path, max_height: int) -> tuple[Path, str | None]:
-    """비디오 스트림만(오디오 없이) 받아서 ffmpeg 없이도 동작하게 한다."""
+def download_video(url: str, out_dir: Path, max_height: int,
+                   log=print, progress=None) -> tuple[Path, str | None]:
+    """비디오 스트림만(오디오 없이) 받아서 ffmpeg 없이도 동작하게 한다.
+    progress(fraction 0~1) 콜백은 GUI 진행 표시용."""
     import yt_dlp
 
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -70,9 +72,18 @@ def download_video(url: str, out_dir: Path, max_height: int) -> tuple[Path, str 
         "format": fmt,
         "outtmpl": str(out_dir / "video.%(ext)s"),
         "noplaylist": True,
-        "quiet": False,
+        "quiet": progress is not None,
         "no_warnings": True,
     }
+    if progress is not None:
+        def _hook(d):
+            if d.get("status") == "downloading":
+                total = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
+                if total:
+                    progress(d.get("downloaded_bytes", 0) / total)
+            elif d.get("status") == "finished":
+                progress(1.0)
+        opts["progress_hooks"] = [_hook]
     if not have_ffmpeg:
         # ffmpeg 없으면 병합/재인코딩이 필요한 포맷은 피한다 (비디오 단독 스트림은 병합 불필요)
         opts["prefer_ffmpeg"] = False
@@ -85,7 +96,7 @@ def download_video(url: str, out_dir: Path, max_height: int) -> tuple[Path, str 
         if not cands:
             sys.exit("다운로드된 파일을 찾을 수 없습니다.")
         path = cands[0]
-    print(f"[download] {path.name} ({info.get('title', '')})")
+    log(f"[download] {path.name} ({info.get('title', '')})")
     return path, info.get("title")
 
 
@@ -185,6 +196,9 @@ def extract_pages(
     dedup: float | None,
     min_bright: float = 0.0,
     debug_dir: Path | None = None,
+    log=print,
+    progress=None,
+    should_stop=None,
 ) -> list[Capture]:
     cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
@@ -194,8 +208,8 @@ def extract_pages(
     duration = n_frames / fps
     end = min(end, duration) if end else duration
     step = max(1, int(round(interval * fps)))
-    print(f"[scan] {fmt_time(start)} → {fmt_time(end)}, {interval}s 간격, "
-          f"threshold={threshold}, settle={settle}")
+    log(f"[scan] {fmt_time(start)} → {fmt_time(end)}, {interval}s 간격, "
+        f"threshold={threshold}, settle={settle}")
 
     pages: list[Capture] = []
     ref_sig: np.ndarray | None = None      # 마지막으로 저장한 페이지
@@ -207,7 +221,7 @@ def extract_pages(
 
     while True:
         t = frame_idx / fps
-        if t > end:
+        if t > end or (should_stop is not None and should_stop()):
             break
         cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
         ok, frame = cap.read()
@@ -222,7 +236,7 @@ def extract_pages(
         else:
             diff_ref = changed_ratio(sig, ref_sig)
             if debug_dir is not None:
-                print(f"  t={t:7.2f}s diff={diff_ref:.4f}")
+                log(f"  t={t:7.2f}s diff={diff_ref:.4f}")
             if diff_ref > threshold:
                 # 이전 페이지와 다름 → 화면이 멈출 때까지(전환 애니메이션 끝) 기다린다
                 if pending is not None and changed_ratio(sig, pending[0]) <= threshold:
@@ -239,35 +253,39 @@ def extract_pages(
                 dup = True
                 skipped_dark += 1
                 if debug_dir is not None:
-                    print(f"  [skip] {fmt_time(pt)} - 악보처럼 보이지 않음 (bright={bright_ratio(psig):.2f})")
+                    log(f"  [skip] {fmt_time(pt)} - 악보처럼 보이지 않음 (bright={bright_ratio(psig):.2f})")
             if not dup and dedup is not None:
                 for p in pages:
                     if changed_ratio(psig, p.sig) < dedup:
                         dup = True
-                        print(f"  [skip] {fmt_time(pt)} - page {p.index} 와 동일 (반복 구간)")
+                        log(f"  [skip] {fmt_time(pt)} - page {p.index} 와 동일 (반복 구간)")
                         break
             if not dup:
                 pages.append(Capture(len(pages) + 1, pt, pcrop, psig))
-                print(f"  [page {len(pages):3d}] {fmt_time(pt)}")
+                log(f"  [page {len(pages):3d}] {fmt_time(pt)}")
             ref_sig = psig
             pending, stable_count = None, 0
 
         frame_idx += step
-        pct = int((t - start) / max(1e-6, end - start) * 100)
-        if pct // 10 != last_report // 10 and debug_dir is None:
+        frac = (t - start) / max(1e-6, end - start)
+        if progress is not None:
+            progress(min(1.0, frac))
+        pct = int(frac * 100)
+        if pct // 10 != last_report // 10 and debug_dir is None and progress is None:
             last_report = pct
             print(f"  ... {pct}%", end="\r", flush=True)
 
     cap.release()
-    print(f"[scan] 총 {len(pages)} 페이지 감지"
-          + (f", 악보가 아닌 장면 {skipped_dark}개 제외 (--min-bright 0 으로 끌 수 있음)" if skipped_dark else ""))
+    log(f"[scan] 총 {len(pages)} 페이지 감지"
+        + (f", 악보가 아닌 장면 {skipped_dark}개 제외 (--min-bright 0 으로 끌 수 있음)" if skipped_dark else ""))
     return pages
 
 
 # ─────────────────────────── PDF 생성 ────────────────────────────
 
 def make_pdf(images: list[Image.Image], out_path: Path, per_page: int | None,
-             page_width: int = 1654, page_ratio: float = 1.4142, margin: int = 40, gap: int = 24):
+             page_width: int = 1654, page_ratio: float = 1.4142, margin: int = 40, gap: int = 24,
+             log=print):
     """
     이미지(가로 스트립)를 A4 비율 페이지에 위에서부터 차곡차곡 쌓는다.
     per_page=None 이면 들어가는 만큼 자동, per_page=1 이면 한 장에 하나.
@@ -306,7 +324,7 @@ def make_pdf(images: list[Image.Image], out_path: Path, per_page: int | None,
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     pages[0].save(out_path, "PDF", resolution=200, save_all=True, append_images=pages[1:])
-    print(f"[pdf] {out_path}  ({len(pages)} 페이지, 이미지 {len(images)}장)")
+    log(f"[pdf] {out_path}  ({len(pages)} 페이지, 이미지 {len(images)}장)")
 
 
 def load_images_from_dir(d: Path) -> list[Image.Image]:
@@ -314,6 +332,42 @@ def load_images_from_dir(d: Path) -> list[Image.Image]:
     if not files:
         sys.exit(f"{d} 에 이미지가 없습니다.")
     return [Image.open(f) for f in files]
+
+
+def probe_video(video: Path) -> tuple[float, float, int, int]:
+    """(fps, duration_sec, width, height)"""
+    cap = cv2.VideoCapture(str(video))
+    if not cap.isOpened():
+        sys.exit(f"영상을 열 수 없습니다: {video}")
+    fps = cap.get(cv2.CAP_PROP_FPS) or 30
+    dur = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) / fps
+    w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    cap.release()
+    return fps, dur, w, h
+
+
+def read_frame(video: Path, t: float) -> np.ndarray | None:
+    cap = cv2.VideoCapture(str(video))
+    fps = cap.get(cv2.CAP_PROP_FPS) or 30
+    cap.set(cv2.CAP_PROP_POS_FRAMES, int(t * fps))
+    ok, frame = cap.read()
+    cap.release()
+    return frame if ok else None
+
+
+def safe_pdf_name(title: str | None, override: str | None = None) -> str:
+    safe = re.sub(r'[\\/:*?"<>|]+', "_", title).strip() if title else "sheet"
+    name = override or f"{safe}.pdf"
+    return name if name.lower().endswith(".pdf") else name + ".pdf"
+
+
+def save_pages(pages: list[Capture], pages_dir: Path):
+    if pages_dir.exists():
+        shutil.rmtree(pages_dir)
+    pages_dir.mkdir(parents=True)
+    for p in pages:
+        cv2.imwrite(str(pages_dir / f"page_{p.index:03d}_{fmt_time(p.time)}.png"), p.image)
 
 
 # ─────────────────────────── main ────────────────────────────
@@ -394,18 +448,11 @@ def main():
         sys.exit("감지된 페이지가 없습니다. --threshold 를 낮추거나 --region 을 확인하세요.")
 
     pages_dir = out_dir / "pages"
-    if pages_dir.exists():
-        shutil.rmtree(pages_dir)
-    pages_dir.mkdir()
-    for p in pages:
-        cv2.imwrite(str(pages_dir / f"page_{p.index:03d}_{fmt_time(p.time)}.png"), p.image)
+    save_pages(pages, pages_dir)
     print(f"[pages] PNG 저장: {pages_dir}  (잘못 잡힌 장은 지우고 --from-images 로 PDF 재생성 가능)")
 
     # ── PDF
-    safe = re.sub(r'[\\/:*?"<>|]+', "_", title).strip() if title else "sheet"
-    pdf_name = args.name or f"{safe}.pdf"
-    if not pdf_name.lower().endswith(".pdf"):
-        pdf_name += ".pdf"
+    pdf_name = safe_pdf_name(title, args.name)
     imgs = [Image.fromarray(cv2.cvtColor(p.image, cv2.COLOR_BGR2RGB)) for p in pages]
     make_pdf(imgs, out_dir / pdf_name, args.per_page)
 
