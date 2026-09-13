@@ -60,6 +60,10 @@ def download_video(url: str, out_dir: Path, max_height: int,
     import yt_dlp
 
     out_dir.mkdir(parents=True, exist_ok=True)
+    # 이전에 받아둔 영상이 남아 있으면 yt-dlp 가 "이미 다운로드됨"으로 건너뛰므로 먼저 정리
+    for old in out_dir.glob("video*.*"):
+        if old.suffix.lower() in (".mp4", ".webm", ".mkv", ".part", ".ytdl"):
+            old.unlink(missing_ok=True)
     have_ffmpeg = shutil.which("ffmpeg") is not None
     # h264 mp4 를 우선 (OpenCV 호환성). ffmpeg 이 있으면 합치기 가능한 포맷도 허용.
     fmt = (
@@ -70,9 +74,11 @@ def download_video(url: str, out_dir: Path, max_height: int,
     )
     opts = {
         "format": fmt,
-        "outtmpl": str(out_dir / "video.%(ext)s"),
+        "outtmpl": str(out_dir / "video_%(id)s.%(ext)s"),
         "noplaylist": True,
+        "overwrites": True,
         "quiet": progress is not None,
+        "noprogress": progress is not None,
         "no_warnings": True,
     }
     if progress is not None:
