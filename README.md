@@ -14,7 +14,7 @@
 
 | 필요한 것 | 확인 방법 |
 |---|---|
-| **Mac** (또는 Linux) | Windows도 되긴 하는데 아래 "Windows 사용자" 참고 |
+| **Mac / Windows / Linux** 아무거나 | Windows는 "터미널" 대신 **PowerShell**을 씁니다 → 아래 "Windows 사용자" 참고 |
 | **Python 3.10 이상** | 아래 1단계에서 확인 |
 
 > 터미널이 처음이라면: Mac에서 `⌘ + Space` → `터미널` 입력 → Enter 하면 검은 창이 열립니다. 아래 명령어들은 전부 그 창에 **복사 → 붙여넣기 → Enter** 하면 됩니다.
@@ -190,7 +190,13 @@ output/
 
 ## Windows 사용자
 
-PowerShell에서:
+Windows에도 터미널이 있습니다. 이름이 **PowerShell**이에요.
+
+1. 시작 메뉴 클릭 → `PowerShell` 입력 → 나오는 파란 창(Windows PowerShell) 클릭해서 열기
+2. Python이 없다면 https://www.python.org/downloads/ 에서 설치 — **설치 화면에서 "Add python.exe to PATH" 체크박스 꼭 체크**
+3. Git이 없다면 https://git-scm.com/downloads 에서 설치 (기본 옵션 그대로 Next만 눌러도 됨)
+
+그 창(PowerShell)에 아래를 순서대로 붙여넣고 Enter:
 
 ```powershell
 git clone https://github.com/doookyung/yt-sheet-pdf.git
