@@ -1,0 +1,5 @@
+#!/bin/bash
+# 실행 래퍼: ./sheet2pdf <유튜브URL 또는 영상파일> [옵션...]
+cd "$(dirname "$0")"
+[ -x .venv/bin/python ] || { echo "먼저 ./setup.sh 를 실행하세요."; exit 1; }
+exec .venv/bin/python sheet2pdf.py "$@"
