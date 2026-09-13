@@ -4,9 +4,19 @@
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 cd "$ROOT"
 
+# Apple Silicon 에서 Finder 가 앱을 Rosetta(x86_64)로 띄우는 경우가 있어
+# 네이티브(arm64)로 강제 실행한다. (Rosetta 아래서도 hw.optional.arm64 는 1)
+run_native() {
+  if [ "$(sysctl -n hw.optional.arm64 2>/dev/null)" = "1" ]; then
+    exec arch -arm64 "$@"
+  else
+    exec "$@"
+  fi
+}
+
 # 이미 설치돼 있으면 바로 실행
 if [ -x .venv/bin/python ]; then
-  exec .venv/bin/python app.py
+  run_native .venv/bin/python app.py
 fi
 
 find_python() {
