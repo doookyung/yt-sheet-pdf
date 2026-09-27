@@ -183,12 +183,63 @@ def bright_ratio(sig: np.ndarray) -> float:
     return float((sig > 200).mean())
 
 
+def find_staff(crop: np.ndarray) -> tuple[int, float] | None:
+    """오선(간격이 같은 가로줄 5개)을 찾아 (맨 윗줄 y, 줄 간격)을 돌려준다. 없으면 None.
+    빔(음표를 잇는 굵은 가로줄)도 길게 잡히므로 '같은 간격 5줄'인지로 걸러낸다."""
+    g = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+    rows = np.flatnonzero((g < 200).mean(axis=1) > 0.6)
+    lines: list[list[int]] = []
+    for y in rows:
+        if lines and y - lines[-1][-1] <= 2:
+            lines[-1].append(int(y))
+        else:
+            lines.append([int(y)])
+    ys = [float(np.mean(l)) for l in lines]
+    for i in range(len(ys) - 4):
+        gaps = np.diff(ys[i : i + 5])
+        if gaps.min() >= 4 and gaps.max() - gaps.min() <= max(2.0, 0.15 * gaps.mean()):
+            return int(ys[i]), float(gaps.mean())
+    return None
+
+
+def label_mask(crop: np.ndarray, frac: float = 0.03) -> np.ndarray:
+    """악보 줄 맨 왼쪽 끝, 첫 오선 바로 위(마디 번호가 적히는 곳)의 '검은 글씨' 마스크.
+
+    반복 구간은 음표가 똑같아서 전체 비교로는 구분이 안 되지만, 왼쪽 끝의
+    마디 번호(5, 9, 13 …)는 줄마다 다르다.
+    - 파란 재생 커서처럼 색이 있는 픽셀은 채도로 걸러내고 어두운 무채색만 남긴다.
+    - 오선·음자리표, 그 위의 굵은 리허설 마크(A, Intro …)는 압축 노이즈로
+      테두리가 흔들려 오판을 부르므로, 오선 맨 윗줄 바로 위 띠만 본다."""
+    h, w = crop.shape[:2]
+    x1 = max(24, int(w * frac))
+    staff = find_staff(crop)
+    if staff is not None:
+        top, gap = staff
+        y0, y1 = max(0, int(top - 3 * gap)), max(1, top - 2)
+    else:
+        y0, y1 = 0, h
+    band = np.zeros((h, x1), np.uint8)
+    hsv = cv2.cvtColor(crop[y0:y1, :x1], cv2.COLOR_BGR2HSV)
+    band[y0:y1] = (hsv[..., 2] < 120) & (hsv[..., 1] < 90)
+    return band
+
+
+def label_changed(a: np.ndarray, b: np.ndarray, min_ratio: float = 0.06, min_px: int = 10) -> bool:
+    """두 줄의 왼쪽 끝(마디 번호)이 다르면 True. 1px 정도의 압축 떨림은 무시."""
+    k = np.ones((3, 3), np.uint8)
+    da, db = cv2.dilate(a, k), cv2.dilate(b, k)
+    diff = int(((a > 0) & (db == 0)).sum() + ((b > 0) & (da == 0)).sum())
+    ink = max(int(a.sum()), int(b.sum()), 1)
+    return diff >= min_px and diff / ink >= min_ratio
+
+
 @dataclass
 class Capture:
     index: int
     time: float
     image: np.ndarray  # 원본 해상도 크롭 (BGR)
     sig: np.ndarray
+    label: np.ndarray | None = None  # 왼쪽 끝 마디 번호 마스크
 
 
 def extract_pages(
@@ -219,7 +270,8 @@ def extract_pages(
 
     pages: list[Capture] = []
     ref_sig: np.ndarray | None = None      # 마지막으로 저장한 페이지
-    pending: tuple[np.ndarray, np.ndarray, float] | None = None  # (sig, crop, t)
+    ref_label: np.ndarray | None = None    # 그 페이지의 왼쪽 끝(마디 번호)
+    pending: tuple[np.ndarray, np.ndarray, float, np.ndarray] | None = None  # (sig, crop, t, label)
     stable_count = 0
     skipped_dark = 0
     frame_idx = int(start * fps)
@@ -235,25 +287,29 @@ def extract_pages(
             break
         crop = region.crop(frame)
         sig = signature(crop)
+        lab = label_mask(crop)
 
         if ref_sig is None:
             # 첫 프레임은 무조건 첫 페이지
-            pending, stable_count = (sig, crop.copy(), t), settle
+            pending, stable_count = (sig, crop.copy(), t, lab), settle
         else:
             diff_ref = changed_ratio(sig, ref_sig)
+            # 음표가 똑같은 반복 줄이라도 마디 번호가 바뀌면 새 페이지
+            new_label = ref_label is not None and label_changed(lab, ref_label)
             if debug_dir is not None:
-                log(f"  t={t:7.2f}s diff={diff_ref:.4f}")
-            if diff_ref > threshold:
+                log(f"  t={t:7.2f}s diff={diff_ref:.4f}" + (" label" if new_label else ""))
+            if diff_ref > threshold or new_label:
                 # 이전 페이지와 다름 → 화면이 멈출 때까지(전환 애니메이션 끝) 기다린다
-                if pending is not None and changed_ratio(sig, pending[0]) <= threshold:
+                if (pending is not None and changed_ratio(sig, pending[0]) <= threshold
+                        and not label_changed(lab, pending[3])):
                     stable_count += 1
                 else:
-                    pending, stable_count = (sig, crop.copy(), t), 1
+                    pending, stable_count = (sig, crop.copy(), t, lab), 1
             else:
                 pending, stable_count = None, 0
 
         if pending is not None and stable_count >= settle:
-            psig, pcrop, pt = pending
+            psig, pcrop, pt, plab = pending
             dup = False
             if min_bright > 0 and bright_ratio(psig) < min_bright:
                 dup = True
@@ -262,14 +318,17 @@ def extract_pages(
                     log(f"  [skip] {fmt_time(pt)} - 악보처럼 보이지 않음 (bright={bright_ratio(psig):.2f})")
             if not dup and dedup is not None:
                 for p in pages:
-                    if changed_ratio(psig, p.sig) < dedup:
+                    # 마디 번호까지 같아야 진짜 중복(영상이 같은 줄을 다시 보여준 것).
+                    # 번호가 다르면 악보에 실제로 반복해서 적힌 줄이므로 살린다.
+                    if changed_ratio(psig, p.sig) < dedup and not (
+                            p.label is not None and label_changed(plab, p.label)):
                         dup = True
                         log(f"  [skip] {fmt_time(pt)} - page {p.index} 와 동일 (반복 구간)")
                         break
             if not dup:
-                pages.append(Capture(len(pages) + 1, pt, pcrop, psig))
+                pages.append(Capture(len(pages) + 1, pt, pcrop, psig, plab))
                 log(f"  [page {len(pages):3d}] {fmt_time(pt)}")
-            ref_sig = psig
+            ref_sig, ref_label = psig, plab
             pending, stable_count = None, 0
 
         frame_idx += step
